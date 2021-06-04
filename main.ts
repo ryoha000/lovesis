@@ -1,18 +1,33 @@
-function handleRequest(request: Request) {
-  const pathname: URL = new URL(request.url);
-  const txt = ` Hello DenoDeploy!\n path : ${pathname}\n`;
-  return new Response(txt, {
-    headers: { "content-type": "text/plain" },
-  });
+const BASE_URL = "https://raw.githubusercontent.com/ryoha000/lovesis/master/public"
+
+const handleRequest = async (request: Request) => {
+  switch (request.method) {
+    case "GET": {
+      const url = new URL(request.url)
+      const pathname = url.pathname
+      let res: ArrayBuffer
+      if (pathname && pathname !== '/') {
+        res = await (await fetch(`${BASE_URL}/${pathname}`)).arrayBuffer()
+      } else {
+        res = await (await fetch(`${BASE_URL}/index.html`)).arrayBuffer()
+      }
+      return new Response(res, {
+        headers: { "content-type": "text/html" },
+      });
+    }
+    default: {
+      return new Response(null, { status: 405 })
+    }
+  }
 }
 
 const isRequestEvent = (e: Event): e is RequestEvent => {
   return 'request' in e && 'respondWith' in e
 }
 
-addEventListener("fetch", (event) => {
+addEventListener("fetch", async (event) => {
   if (isRequestEvent(event)) {
-    event.respondWith(handleRequest(event.request));
+    event.respondWith(await handleRequest(event.request));
   }
 });
 
