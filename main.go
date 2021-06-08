@@ -1,54 +1,99 @@
 package main
 
 import (
-    "database/sql"
-    "fmt"
-    "os"
-    _ "github.com/mattn/go-oci8"
+	"archive/tar"
+	"bytes"
+	"io"
+	"io/ioutil"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/klauspost/compress/zstd"
 )
 
-func execSQL(db *sql.DB, sql string) bool{
-    _,err := db.Exec(sql)
-    if err != nil {
-        fmt.Println(err)
-        return false
-    } else {
-        return true
-    }
+func main() {
+	// file, err := os.Open("vndb-db-2021-06-04.tar.zst")
+	// if err != nil {
+	// 	fmt.Errorf("%v", err)
+	// 	os.Exit(1)
+	// }
+	// defer file.Close()
+
+	// newFile, err := os.Create("decompress.tar")
+	// if err != nil {
+	// 	fmt.Errorf("%v", err)
+	// 	os.Exit(1)
+	// }
+
+
+	newFile, err := os.Open("decompress.tar")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	
+	_ = os.Mkdir("decompress", 0755)
+
+	// err = Decompress(file, newFile)
+	// if err != nil {
+	// 	fmt.Errorf("%v", err)
+	// 	os.Exit(1)
+	// }
+
+	err = OpenTAR(newFile)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
-func main() {
-    db, err := sql.Open("oci8", os.Args[1])
+func Decompress(in io.Reader, out io.Writer) error {
+    d, err := zstd.NewReader(in)
     if err != nil {
-        fmt.Println(err)
-        return
+        return err
     }
-    defer db.Close()
-    if !execSQL(db,"create table HOGE (NUM number(2),WORD varchar2(10))"){
-        return
-    }
-    if !execSQL(db,"insert into HOGE values (1,'One')"){
-        return
-    }
-    if !execSQL(db,"insert into HOGE values (2,'Two')"){
-        return
-    }
-    if !execSQL(db,"insert into HOGE values (3,'Three')"){
-        return
-    }
+    defer d.Close()
+    
+    // Copy content...
+    _, err = io.Copy(out, d)
+    return err
+}
 
-    rows ,err := db.Query("select NUM,WORD  from HOGE order by NUM")
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
-    defer rows.Close()
-    for rows.Next(){
-        var num int 
-        var word string
+func OpenTAR(in io.Reader) error {
+	tarReader := tar.NewReader(in)
+	
+	for {
+        header, err := tarReader.Next()
+        if err == io.EOF {
+            // ファイルの最後
+            break
+        }
+        if err != nil {
+            return err
+        }
+		if (strings.HasSuffix(header.Name, "/")) {
+			continue
+		}
 
-        rows.Scan(&num, &word)
-        fmt.Println(num, word)
+        buf := new(bytes.Buffer)
+        if _, err = io.Copy(buf, tarReader); err != nil {
+            return err
+        }
+
+		s := filepath.Join("decompress", header.Name)
+		d, _ := filepath.Split(s)
+
+		if _, err = os.Stat(d); err != nil {
+			err = os.MkdirAll(d, 0755)
+			if err != nil {
+				return err
+			}
+		}
+
+		if err = ioutil.WriteFile(s, buf.Bytes(), 0755); err != nil {
+			return err
+		}
     }
-    _,err = db.Exec("drop table HOGE")
+	return nil
 }
